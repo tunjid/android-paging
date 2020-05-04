@@ -16,20 +16,21 @@
 
 package com.example.android.codelabs.paging.ui
 
-import androidx.lifecycle.LiveData
-import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.asLiveData
-import androidx.lifecycle.distinctUntilChanged
-import androidx.lifecycle.liveData
-import androidx.lifecycle.switchMap
 import androidx.lifecycle.viewModelScope
+import androidx.paging.PagingData
+import androidx.paging.cachedIn
 import com.example.android.codelabs.paging.data.GithubRepository
-import com.example.android.codelabs.paging.model.RepoSearchResult
-import kotlinx.coroutines.Dispatchers
+import com.example.android.codelabs.paging.model.Repo
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.shareIn
+import kotlinx.coroutines.flow.withIndex
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.onStart
 
 /**
  * ViewModel for the [SearchRepositoriesActivity] screen.
@@ -40,51 +41,45 @@ class SearchRepositoriesViewModel(
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
-    companion object {
-        private const val VISIBLE_THRESHOLD = 5
-        private const val LAST_SEARCH_QUERY: String = "last_search_query"
-        private const val DEFAULT_QUERY = "Android"
-    }
+    val state: Flow<UiState>
+    val search: (String) -> Unit
 
-    private val queryLiveData =
-        MutableLiveData(savedStateHandle.get(LAST_SEARCH_QUERY) ?: DEFAULT_QUERY)
+    init {
+        val queryStateFlow = MutableStateFlow(
+            savedStateHandle.get(LAST_SEARCH_QUERY) ?: DEFAULT_QUERY
+        )
+        search = { queryStateFlow.tryEmit(it) }
 
-    val state: LiveData<UiState> = queryLiveData
-        .distinctUntilChanged()
-        .switchMap { queryString ->
-            liveData {
-                val uiState = repository.getSearchResultStream(queryString)
-                    .map {
+        state = queryStateFlow
+            .flatMapLatest { query ->
+                searchRepo(query)
+                    .withIndex()
+                    .map { (index, pagingData) ->
                         UiState(
-                            query = queryString,
-                            searchResult = it
+                            query = query,
+                            pagingData = pagingData,
+                            queryChanged = index == 0
                         )
                     }
-                    .asLiveData(Dispatchers.Main)
-                emitSource(uiState)
             }
-        }
-
-    /**
-     * Search a repository based on a query string.
-     */
-    fun searchRepo(queryString: String) {
-        queryLiveData.postValue(queryString)
+            .onStart { emit(UiState()) }
+            .shareIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(stopTimeoutMillis = 5000),
+                replay = 1
+            )
     }
 
-    fun listScrolled(visibleItemCount: Int, lastVisibleItemPosition: Int, totalItemCount: Int) {
-        if (visibleItemCount + lastVisibleItemPosition + VISIBLE_THRESHOLD >= totalItemCount) {
-            val immutableQuery = queryLiveData.value
-            if (immutableQuery != null) {
-                viewModelScope.launch {
-                    repository.requestMore(immutableQuery)
-                }
-            }
-        }
-    }
+    private fun searchRepo(queryString: String): Flow<PagingData<Repo>> =
+        repository.getSearchResultStream(queryString)
+            .cachedIn(viewModelScope)
 }
 
 data class UiState(
-    val query: String,
-    val searchResult: RepoSearchResult
+    val query: String = DEFAULT_QUERY,
+    val queryChanged: Boolean = false,
+    val pagingData: PagingData<Repo> = PagingData.empty()
 )
+
+private const val LAST_SEARCH_QUERY: String = "last_search_query"
+private const val DEFAULT_QUERY = "Android"
