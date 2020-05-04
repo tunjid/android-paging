@@ -49,7 +49,12 @@ class SearchRepositoriesActivity : AppCompatActivity() {
         val repoAdapter = ReposAdapter()
 
         // get the view model
-        val viewModel = ViewModelProvider(this, Injection.provideViewModelFactory(owner = this))
+        val viewModel = ViewModelProvider(
+            this, Injection.provideViewModelFactory(
+                context = this,
+                owner = this
+            )
+        )
             .get(SearchRepositoriesViewModel::class.java)
 
         // add dividers between RecyclerView's row items
@@ -66,21 +71,29 @@ class SearchRepositoriesActivity : AppCompatActivity() {
     }
 
     private fun ActivitySearchRepositoriesBinding.initAdapter(adapter: ReposAdapter) {
+        val header = ReposLoadStateAdapter { adapter.retry() }
+
         list.adapter = adapter.withLoadStateHeaderAndFooter(
-                header = ReposLoadStateAdapter { adapter.retry() },
-                footer = ReposLoadStateAdapter { adapter.retry() }
+            header = header,
+            footer = ReposLoadStateAdapter { adapter.retry() }
         )
         adapter.addLoadStateListener { loadState ->
+            // Show a retry header if there was an error refreshing, and items were previously
+            // cached OR default to the default prepend state
+            header.loadState = loadState.mediator
+                ?.refresh
+                ?.takeIf { it is LoadState.Error && adapter.itemCount > 0 }
+                ?: loadState.prepend
+
             val isListEmpty = loadState.refresh is LoadState.NotLoading && adapter.itemCount == 0
             // show empty list
             emptyList.isVisible = isListEmpty
-            // Only show the list if refresh succeeds.
-            list.isVisible = !isListEmpty
+            // Only show the list if refresh succeeds, either from the the local db or the remote.
+            list.isVisible =  loadState.source.refresh is LoadState.NotLoading || loadState.mediator?.refresh is LoadState.NotLoading
             // Show loading spinner during initial load or refresh.
-            progressBar.isVisible = loadState.source.refresh is LoadState.Loading
+            progressBar.isVisible = loadState.mediator?.refresh is LoadState.Loading
             // Show the retry state if initial load or refresh fails.
-            retryButton.isVisible = loadState.source.refresh is LoadState.Error
-
+            retryButton.isVisible = loadState.mediator?.refresh is LoadState.Error && adapter.itemCount == 0
             // Toast on any error, regardless of whether it came from RemoteMediator or PagingSource
             val errorState = loadState.source.append as? LoadState.Error
                 ?: loadState.source.prepend as? LoadState.Error
