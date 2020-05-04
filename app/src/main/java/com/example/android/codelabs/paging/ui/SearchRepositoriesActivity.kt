@@ -62,6 +62,7 @@ class SearchRepositoriesActivity : AppCompatActivity() {
             uiState = viewModel.state,
             actions = viewModel.accept
         )
+        binding.retryButton.setOnClickListener { repoAdapter.retry() }
     }
 
     private fun ActivitySearchRepositoriesBinding.initAdapter(adapter: ReposAdapter) {
