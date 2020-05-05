@@ -48,7 +48,12 @@ class SearchRepositoriesActivity : AppCompatActivity() {
         val repoAdapter = ReposAdapter()
 
         // get the view model
-        val viewModel = ViewModelProvider(this, Injection.provideViewModelFactory(owner = this))
+        val viewModel = ViewModelProvider(
+            this, Injection.provideViewModelFactory(
+                context = this,
+                owner = this
+            )
+        )
             .get(SearchRepositoriesViewModel::class.java)
 
         // add dividers between RecyclerView's row items
@@ -74,12 +79,11 @@ class SearchRepositoriesActivity : AppCompatActivity() {
             // show empty list
             emptyList.isVisible = isListEmpty
             // Only show the list if refresh succeeds.
-            list.isVisible = !isListEmpty
+            list.isVisible = loadState.mediator?.refresh is LoadState.NotLoading
             // Show loading spinner during initial load or refresh.
-            progressBar.isVisible = loadState.source.refresh is LoadState.Loading
+            progressBar.isVisible = loadState.mediator?.refresh is LoadState.Loading
             // Show the retry state if initial load or refresh fails.
-            retryButton.isVisible = loadState.source.refresh is LoadState.Error
-
+            retryButton.isVisible = loadState.mediator?.refresh is LoadState.Error
             // Toast on any error, regardless of whether it came from RemoteMediator or PagingSource
             val errorState = loadState.source.append as? LoadState.Error
                 ?: loadState.source.prepend as? LoadState.Error
