@@ -17,6 +17,7 @@
 package com.example.android.codelabs.paging
 
 import androidx.lifecycle.ViewModelProvider
+import androidx.savedstate.SavedStateRegistryOwner
 import com.example.android.codelabs.paging.api.GithubService
 import com.example.android.codelabs.paging.data.GithubRepository
 import com.example.android.codelabs.paging.ui.ViewModelFactory
@@ -40,7 +41,7 @@ object Injection {
      * Provides the [ViewModelProvider.Factory] that is then used to get a reference to
      * [ViewModel] objects.
      */
-    fun provideViewModelFactory(): ViewModelProvider.Factory {
-        return ViewModelFactory(provideGithubRepository())
+    fun provideViewModelFactory(owner: SavedStateRegistryOwner): ViewModelProvider.Factory {
+        return ViewModelFactory(owner, provideGithubRepository())
     }
 }

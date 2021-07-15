@@ -18,33 +18,52 @@ package com.example.android.codelabs.paging.ui
 
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.asLiveData
+import androidx.lifecycle.distinctUntilChanged
 import androidx.lifecycle.liveData
 import androidx.lifecycle.switchMap
 import androidx.lifecycle.viewModelScope
 import com.example.android.codelabs.paging.data.GithubRepository
 import com.example.android.codelabs.paging.model.RepoSearchResult
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
  * ViewModel for the [SearchRepositoriesActivity] screen.
  * The ViewModel works with the [GithubRepository] to get the data.
  */
-class SearchRepositoriesViewModel(private val repository: GithubRepository) : ViewModel() {
+class SearchRepositoriesViewModel(
+    private val repository: GithubRepository,
+    savedStateHandle: SavedStateHandle
+) : ViewModel() {
 
     companion object {
         private const val VISIBLE_THRESHOLD = 5
+        private const val LAST_SEARCH_QUERY: String = "last_search_query"
+        private const val DEFAULT_QUERY = "Android"
     }
 
-    private val queryLiveData = MutableLiveData<String>()
-    val repoResult: LiveData<RepoSearchResult> = queryLiveData.switchMap { queryString ->
-        liveData {
-            val repos = repository.getSearchResultStream(queryString).asLiveData(Dispatchers.Main)
-            emitSource(repos)
+    private val queryLiveData =
+        MutableLiveData(savedStateHandle.get(LAST_SEARCH_QUERY) ?: DEFAULT_QUERY)
+
+    val state: LiveData<UiState> = queryLiveData
+        .distinctUntilChanged()
+        .switchMap { queryString ->
+            liveData {
+                val uiState = repository.getSearchResultStream(queryString)
+                    .map {
+                        UiState(
+                            query = queryString,
+                            searchResult = it
+                        )
+                    }
+                    .asLiveData(Dispatchers.Main)
+                emitSource(uiState)
+            }
         }
-    }
 
     /**
      * Search a repository based on a query string.
@@ -64,3 +83,8 @@ class SearchRepositoriesViewModel(private val repository: GithubRepository) : Vi
         }
     }
 }
+
+data class UiState(
+    val query: String,
+    val searchResult: RepoSearchResult
+)
