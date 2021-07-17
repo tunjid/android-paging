@@ -24,14 +24,18 @@ import androidx.paging.cachedIn
 import com.example.android.codelabs.paging.data.GithubRepository
 import com.example.android.codelabs.paging.model.Repo
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterIsInstance
-import kotlinx.coroutines.flow.shareIn
-import kotlinx.coroutines.flow.withIndex
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.onSubscription
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 /**
  * ViewModel for the [SearchRepositoriesActivity] screen.
@@ -39,39 +43,58 @@ import kotlinx.coroutines.flow.onStart
  */
 class SearchRepositoriesViewModel(
     private val repository: GithubRepository,
-    savedStateHandle: SavedStateHandle
+    private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
-    val state: Flow<UiState>
+    val state: StateFlow<UiState>
     val accept: (UiAction) -> Unit
 
     init {
-        val queryStateFlow = MutableStateFlow<UiAction>(
-            UiAction.Search(query = savedStateHandle.get(LAST_SEARCH_QUERY) ?: DEFAULT_QUERY)
-        )
-        accept = { queryStateFlow.tryEmit(it) }
-
-        state = queryStateFlow
+        val initialQuery: String = savedStateHandle.get(LAST_SEARCH_QUERY) ?: DEFAULT_QUERY
+        val lastQueryScrolled: String? = savedStateHandle.get(LAST_QUERY_SCROLLED)
+        val mutableActionSharedFlow = MutableSharedFlow<UiAction>()
+        val actionStateFlow = mutableActionSharedFlow.onSubscription {
+            emit(UiAction.Search(query = initialQuery))
+            emit(UiAction.Scroll(currentQuery = lastQueryScrolled))
+        }
+        val searches = actionStateFlow
             .filterIsInstance<UiAction.Search>()
-            .map { it.query }
-            .flatMapLatest { query ->
-                searchRepo(query)
-                    .withIndex()
-                    .map { (index, pagingData) ->
+            .distinctUntilChanged()
+        val queriesScrolled = actionStateFlow
+            .filterIsInstance<UiAction.Scroll>()
+            .distinctUntilChanged()
+
+        state = combine(searches, queriesScrolled, ::Pair)
+            .flatMapLatest { (search, scroll) ->
+                searchRepo(queryString = search.query)
+                    .map { pagingData ->
                         UiState(
-                            query = query,
+                            query = search.query,
                             pagingData = pagingData,
-                            queryChanged = index == 0
+                            lastQueryScrolled = scroll.currentQuery,
+                            // If the search query matches the scroll query, the user has scrolled
+                            hasNotScrolledForCurrentSearch = search.query != scroll.currentQuery
                         )
                     }
             }
             .onStart { emit(UiState()) }
-            .shareIn(
+            .stateIn(
                 scope = viewModelScope,
                 started = SharingStarted.WhileSubscribed(stopTimeoutMillis = 5000),
-                replay = 1
+                initialValue = UiState()
             )
+
+        accept = { action ->
+            viewModelScope.launch { mutableActionSharedFlow.emit(action) }
+        }
     }
+
+    override fun onCleared() {
+        savedStateHandle[LAST_SEARCH_QUERY] = state.value.query
+        savedStateHandle[LAST_QUERY_SCROLLED] = state.value.lastQueryScrolled
+        super.onCleared()
+    }
+
 
     private fun searchRepo(queryString: String): Flow<PagingData<Repo>> =
         repository.getSearchResultStream(queryString)
@@ -80,13 +103,16 @@ class SearchRepositoriesViewModel(
 
 sealed class UiAction {
     data class Search(val query: String) : UiAction()
+    data class Scroll(val currentQuery: String?) : UiAction()
 }
 
 data class UiState(
     val query: String = DEFAULT_QUERY,
-    val queryChanged: Boolean = false,
+    val lastQueryScrolled: String? = null,
+    val hasNotScrolledForCurrentSearch: Boolean = false,
     val pagingData: PagingData<Repo> = PagingData.empty()
 )
 
+private const val LAST_QUERY_SCROLLED: String = "last_query_scrolled"
 private const val LAST_SEARCH_QUERY: String = "last_search_query"
 private const val DEFAULT_QUERY = "Android"

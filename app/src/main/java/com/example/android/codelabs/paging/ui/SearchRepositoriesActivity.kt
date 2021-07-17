@@ -24,9 +24,10 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.paging.LoadState
 import androidx.recyclerview.widget.DividerItemDecoration
+import androidx.recyclerview.widget.RecyclerView
 import com.example.android.codelabs.paging.Injection
 import com.example.android.codelabs.paging.databinding.ActivitySearchRepositoriesBinding
-import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
@@ -67,7 +68,7 @@ class SearchRepositoriesActivity : AppCompatActivity() {
 
     private fun ActivitySearchRepositoriesBinding.initSearch(
         adapter: ReposAdapter,
-        uiState: Flow<UiState>,
+        uiState: StateFlow<UiState>,
         actions: (UiAction) -> Unit
     ) {
         val onQueryChanged = { query: String -> actions(UiAction.Search(query = query)) }
@@ -87,6 +88,11 @@ class SearchRepositoriesActivity : AppCompatActivity() {
                 false
             }
         }
+        list.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                if (dy != 0) actions(UiAction.Scroll(currentQuery = uiState.value.query))
+            }
+        })
 
         lifecycleScope.launch {
             uiState
@@ -102,13 +108,13 @@ class SearchRepositoriesActivity : AppCompatActivity() {
                 // Only react to cases where Remote REFRESH completes i.e., NotLoading.
                 .map { it.refresh is LoadState.NotLoading }
 
-            val queryChanged = uiState
-                .map { it.queryChanged }
+            val hasNotScrolledForCurrentSearch = uiState
+                .map { it.hasNotScrolledForCurrentSearch }
                 .distinctUntilChanged()
 
             val shouldScrollToTop = combine(
                 notLoading,
-                queryChanged,
+                hasNotScrolledForCurrentSearch,
                 Boolean::and
             )
                 .distinctUntilChanged()
