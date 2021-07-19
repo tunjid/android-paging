@@ -63,7 +63,10 @@ class SearchRepositoriesActivity : AppCompatActivity() {
     }
 
     private fun ActivitySearchRepositoriesBinding.initAdapter(adapter: ReposAdapter) {
-        list.adapter = adapter
+        list.adapter = adapter.withLoadStateHeaderAndFooter(
+                header = ReposLoadStateAdapter { adapter.retry() },
+                footer = ReposLoadStateAdapter { adapter.retry() }
+        )
     }
 
     private fun ActivitySearchRepositoriesBinding.initSearch(
@@ -124,6 +127,9 @@ class SearchRepositoriesActivity : AppCompatActivity() {
                 .distinctUntilChanged()
 
             combine(shouldScrollToTop, pagingData, ::Pair)
+                // Each unique PagingData should be submitted once, take the latest from
+                // shouldScrollToTop
+                .distinctUntilChangedBy { it.second }
                 .collectLatest { (shouldScroll, pagingData) ->
                     adapter.submitData(pagingData)
                     // Scroll only after the data has been submitted to the adapter,
