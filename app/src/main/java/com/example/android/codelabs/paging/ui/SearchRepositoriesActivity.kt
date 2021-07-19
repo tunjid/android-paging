@@ -51,13 +51,16 @@ class SearchRepositoriesActivity : AppCompatActivity() {
         // add dividers between RecyclerView's row items
         val decoration = DividerItemDecoration(this, DividerItemDecoration.VERTICAL)
         binding.list.addItemDecoration(decoration)
-        binding.setupScrollListener(viewModel::listScrolled)
+        binding.setupScrollListener(viewModel.accept)
 
         binding.initAdapter(adapter = repoAdapter, uiState = viewModel.state)
-        binding.initSearch(viewModel::searchRepo)
+        binding.initSearch(viewModel.accept)
     }
 
-    private fun ActivitySearchRepositoriesBinding.initAdapter(adapter: ReposAdapter, uiState: LiveData<UiState>) {
+    private fun ActivitySearchRepositoriesBinding.initAdapter(
+        adapter: ReposAdapter,
+        uiState: LiveData<UiState>
+    ) {
         list.adapter = adapter
         uiState
             .map(UiState::query)
@@ -84,7 +87,8 @@ class SearchRepositoriesActivity : AppCompatActivity() {
             }
     }
 
-    private fun ActivitySearchRepositoriesBinding.initSearch(onQueryChanged: (String) -> Unit) {
+    private fun ActivitySearchRepositoriesBinding.initSearch(actions: (UiAction) -> Unit) {
+        val onQueryChanged = { query: String -> actions(UiAction.Search(query = query)) }
         searchRepo.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_GO) {
                 updateRepoListFromInput(onQueryChanged)
@@ -118,7 +122,7 @@ class SearchRepositoriesActivity : AppCompatActivity() {
     }
 
     private fun ActivitySearchRepositoriesBinding.setupScrollListener(
-        onListScrolled: (visibleItemCount: Int, lastVisibleItemPosition: Int, totalItemCount: Int) -> Unit
+        actions: (UiAction) -> Unit
     ) {
         val layoutManager = list.layoutManager as LinearLayoutManager
         list.addOnScrollListener(object : OnScrollListener() {
@@ -128,7 +132,13 @@ class SearchRepositoriesActivity : AppCompatActivity() {
                 val visibleItemCount = layoutManager.childCount
                 val lastVisibleItem = layoutManager.findLastVisibleItemPosition()
 
-                onListScrolled(visibleItemCount, lastVisibleItem, totalItemCount)
+                actions(
+                    UiAction.Scroll(
+                        visibleItemCount = visibleItemCount,
+                        lastVisibleItemPosition = lastVisibleItem,
+                        totalItemCount = totalItemCount
+                    )
+                )
             }
         })
     }
