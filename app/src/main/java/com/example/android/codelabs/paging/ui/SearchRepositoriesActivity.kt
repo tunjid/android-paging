@@ -124,6 +124,9 @@ class SearchRepositoriesActivity : AppCompatActivity() {
                 .distinctUntilChanged()
 
             combine(shouldScrollToTop, pagingData, ::Pair)
+                // Each unique PagingData should be submitted once, take the latest from
+                // shouldScrollToTop
+                .distinctUntilChangedBy { it.second }
                 .collectLatest { (shouldScroll, pagingData) ->
                     adapter.submitData(pagingData)
                     // Scroll only after the data has been submitted to the adapter,

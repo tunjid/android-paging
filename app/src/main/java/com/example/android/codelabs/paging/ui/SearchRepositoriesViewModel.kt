@@ -29,11 +29,12 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
-import kotlinx.coroutines.flow.onSubscription
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -52,22 +53,34 @@ class SearchRepositoriesViewModel(
     init {
         val initialQuery: String = savedStateHandle.get(LAST_SEARCH_QUERY) ?: DEFAULT_QUERY
         val lastQueryScrolled: String? = savedStateHandle.get(LAST_QUERY_SCROLLED)
-        val mutableActionSharedFlow = MutableSharedFlow<UiAction>()
-        val actionStateFlow = mutableActionSharedFlow.onSubscription {
-            emit(UiAction.Search(query = initialQuery))
-            emit(UiAction.Scroll(currentQuery = lastQueryScrolled))
-        }
+        val actionStateFlow = MutableSharedFlow<UiAction>()
         val searches = actionStateFlow
             .filterIsInstance<UiAction.Search>()
             .distinctUntilChanged()
+            .onStart { emit(UiAction.Search(query = initialQuery)) }
         val queriesScrolled = actionStateFlow
             .filterIsInstance<UiAction.Scroll>()
             .distinctUntilChanged()
+            // This is shared to keep the flow "hot" while caching the last query scrolled,
+            // otherwise each flatMapLatest invocation would lose the last query scrolled,
+            .shareIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(stopTimeoutMillis = 5000),
+                replay = 1
+            )
+            .onStart { emit(UiAction.Scroll(currentQuery = lastQueryScrolled)) }
 
-        state = combine(searches, queriesScrolled, ::Pair)
-            .flatMapLatest { (search, scroll) ->
-                searchRepo(queryString = search.query)
-                    .map { pagingData ->
+        state = searches
+            .flatMapLatest { search ->
+                combine(
+                    queriesScrolled,
+                    searchRepo(queryString = search.query),
+                    ::Pair
+                )
+                    // Each unique PagingData should be submitted once, take the latest from
+                    // queriesScrolled
+                    .distinctUntilChangedBy { it.second }
+                    .map { (scroll, pagingData) ->
                         UiState(
                             query = search.query,
                             pagingData = pagingData,
@@ -85,7 +98,7 @@ class SearchRepositoriesViewModel(
             )
 
         accept = { action ->
-            viewModelScope.launch { mutableActionSharedFlow.emit(action) }
+            viewModelScope.launch { actionStateFlow.emit(action) }
         }
     }
 
