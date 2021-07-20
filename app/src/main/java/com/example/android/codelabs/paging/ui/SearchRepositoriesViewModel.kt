@@ -40,7 +40,14 @@ class SearchRepositoriesViewModel(
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
+    /**
+     * Stream of immutable states representative of the UI.
+     */
     val state: LiveData<UiState>
+
+    /**
+     * Processor of side effects from the UI which in turn feedback into [state]
+     */
     val accept: (UiAction) -> Unit
 
     init {

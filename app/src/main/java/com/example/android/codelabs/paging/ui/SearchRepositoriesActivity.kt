@@ -42,8 +42,6 @@ class SearchRepositoriesActivity : AppCompatActivity() {
         val view = binding.root
         setContentView(view)
 
-        val repoAdapter = ReposAdapter()
-
         // get the view model
         val viewModel = ViewModelProvider(this, Injection.provideViewModelFactory(owner = this))
             .get(SearchRepositoriesViewModel::class.java)
@@ -51,44 +49,40 @@ class SearchRepositoriesActivity : AppCompatActivity() {
         // add dividers between RecyclerView's row items
         val decoration = DividerItemDecoration(this, DividerItemDecoration.VERTICAL)
         binding.list.addItemDecoration(decoration)
-        binding.setupScrollListener(viewModel.accept)
 
-        binding.initAdapter(adapter = repoAdapter, uiState = viewModel.state)
-        binding.initSearch(viewModel.accept)
+        // bind the state
+        binding.bindState(
+            uiState = viewModel.state,
+            uiActions = viewModel.accept
+        )
     }
 
-    private fun ActivitySearchRepositoriesBinding.initAdapter(
-        adapter: ReposAdapter,
-        uiState: LiveData<UiState>
+    /**
+     * Binds the [UiState] provided  by the [SearchRepositoriesViewModel] to the UI,
+     * and allows the UI to feed back user actions to it.
+     */
+    private fun ActivitySearchRepositoriesBinding.bindState(
+        uiState: LiveData<UiState>,
+        uiActions: (UiAction) -> Unit
     ) {
-        list.adapter = adapter
-        uiState
-            .map(UiState::query)
-            .distinctUntilChanged()
-            .observe(this@SearchRepositoriesActivity, searchRepo::setText)
+        val repoAdapter = ReposAdapter()
+        list.adapter = repoAdapter
 
-        uiState
-            .map(UiState::searchResult)
-            .distinctUntilChanged()
-            .observe(this@SearchRepositoriesActivity) { result ->
-                when (result) {
-                    is RepoSearchResult.Success -> {
-                        showEmptyList(result.data.isEmpty())
-                        adapter.submitList(result.data)
-                    }
-                    is RepoSearchResult.Error -> {
-                        Toast.makeText(
-                            this@SearchRepositoriesActivity,
-                            "\uD83D\uDE28 Wooops $result.message}",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
-                }
-            }
+        bindSearchBox(
+            uiState = uiState,
+            onQueryChanged = uiActions
+        )
+        bindAdapterList(
+            repoAdapter = repoAdapter,
+            uiState = uiState,
+            onScrollChanged = uiActions
+        )
     }
 
-    private fun ActivitySearchRepositoriesBinding.initSearch(actions: (UiAction) -> Unit) {
-        val onQueryChanged = { query: String -> actions(UiAction.Search(query = query)) }
+    private fun ActivitySearchRepositoriesBinding.bindSearchBox(
+        uiState: LiveData<UiState>,
+        onQueryChanged: (UiAction.Search) -> Unit
+    ) {
         searchRepo.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_GO) {
                 updateRepoListFromInput(onQueryChanged)
@@ -105,15 +99,47 @@ class SearchRepositoriesActivity : AppCompatActivity() {
                 false
             }
         }
+
+        uiState
+            .map(UiState::query)
+            .distinctUntilChanged()
+            .observe(this@SearchRepositoriesActivity, searchRepo::setText)
     }
 
-    private fun ActivitySearchRepositoriesBinding.updateRepoListFromInput(onQueryChanged: (String) -> Unit) {
+    private fun ActivitySearchRepositoriesBinding.updateRepoListFromInput(onQueryChanged: (UiAction.Search) -> Unit) {
         searchRepo.text.trim().let {
             if (it.isNotEmpty()) {
                 list.scrollToPosition(0)
-                onQueryChanged(it.toString())
+                onQueryChanged(UiAction.Search(query = it.toString()))
             }
         }
+    }
+
+    private fun ActivitySearchRepositoriesBinding.bindAdapterList(
+        repoAdapter: ReposAdapter,
+        uiState: LiveData<UiState>,
+        onScrollChanged: (UiAction.Scroll) -> Unit
+    ) {
+        setupScrollListener(onScrollChanged)
+
+        uiState
+            .map(UiState::searchResult)
+            .distinctUntilChanged()
+            .observe(this@SearchRepositoriesActivity) { result ->
+                when (result) {
+                    is RepoSearchResult.Success -> {
+                        showEmptyList(result.data.isEmpty())
+                        repoAdapter.submitList(result.data)
+                    }
+                    is RepoSearchResult.Error -> {
+                        Toast.makeText(
+                            this@SearchRepositoriesActivity,
+                            "\uD83D\uDE28 Wooops $result.message}",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+            }
     }
 
     private fun ActivitySearchRepositoriesBinding.showEmptyList(show: Boolean) {
@@ -122,7 +148,7 @@ class SearchRepositoriesActivity : AppCompatActivity() {
     }
 
     private fun ActivitySearchRepositoriesBinding.setupScrollListener(
-        actions: (UiAction) -> Unit
+        onScrollChanged: (UiAction.Scroll) -> Unit
     ) {
         val layoutManager = list.layoutManager as LinearLayoutManager
         list.addOnScrollListener(object : OnScrollListener() {
@@ -132,7 +158,7 @@ class SearchRepositoriesActivity : AppCompatActivity() {
                 val visibleItemCount = layoutManager.childCount
                 val lastVisibleItem = layoutManager.findLastVisibleItemPosition()
 
-                actions(
+                onScrollChanged(
                     UiAction.Scroll(
                         visibleItemCount = visibleItemCount,
                         lastVisibleItemPosition = lastVisibleItem,
