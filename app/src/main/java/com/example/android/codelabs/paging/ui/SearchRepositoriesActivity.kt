@@ -38,6 +38,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 
 class SearchRepositoriesActivity : AppCompatActivity() {
@@ -149,8 +150,12 @@ class SearchRepositoriesActivity : AppCompatActivity() {
             }
         })
         val notLoading = repoAdapter.loadStateFlow
+            .asMergedLoadStates()
             // Only emit when REFRESH LoadState for the paging source changes.
             .distinctUntilChangedBy { it.refresh }
+            .onEach {
+                println("Out: ${it.refresh }")
+            }
             // Only react to cases where REFRESH completes i.e., NotLoading.
             .map { it.refresh is LoadState.NotLoading }
 
